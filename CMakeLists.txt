@@ -165,7 +165,7 @@ if(NOT CMAKE_CROSSCOMPILING)
         set(SSE42_TRUE TRUE)
         set(AES_TRUE TRUE)
         set(CLMUL_TRUE TRUE)
-        if(_cpu_family GREATER_EQUAL 23) # zen (ryzen,epyc,...) -march=znver1
+        if(_cpu_family GREATER_EQUAL 23) # zen (ryzen,epyc,...)
           set(AVX2_TRUE TRUE)
           set(SHA_TRUE TRUE)
         endif()
@@ -173,6 +173,9 @@ if(NOT CMAKE_CROSSCOMPILING)
     endif()
   endif()
 endif(NOT CMAKE_CROSSCOMPILING)
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crypto")
+set(CFLAGS "${CFLAGS} -march=armv8-a+crypto")
 
 if(PROCESSOR_FAMILY STREQUAL "Intel")
  if(CMAKE_COMPILER_IS_GNUCC)
@@ -229,8 +232,7 @@ if(CMAKE_COMPILER_IS_GNUCC
   # "${CMAKE_C_FLAGS} -msha") set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msha")
   # ENDIF (SHA_TRUE)
   if(NOT CMAKE_CROSSCOMPILING)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -march=native")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
   endif()
   set_source_files_properties(blake3/blake3.c
                               PROPERTIES COMPILE_FLAGS "-std=c99")
@@ -677,6 +679,7 @@ add_library(
   beamsplitter.cpp
   discohash_512.cpp
   xxhash.c
+  gxhash.c
   metrohash/metrohash64.cpp
   metrohash/metrohash128.cpp
   cmetrohash64.c
@@ -705,7 +708,6 @@ add_library(
   sha2/sha512_224.c
   sha2/sha512_256.c
   sha3.c
-  ${PMPML_SRC}
   vmac.cpp
   rijndael-alg-fst.c
   ${BLAKE3_SRC}

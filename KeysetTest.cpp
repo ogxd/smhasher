@@ -205,6 +205,7 @@ void AppendedZeroesTest ( pfHash hash, const int hashbits )
   Rand r(173994);
 
   const int hashbytes = hashbits/8;
+  int failures = 0;
 
   for(int rep = 0; rep < 100; rep++)
   {
@@ -228,12 +229,16 @@ void AppendedZeroesTest ( pfHash hash, const int hashbits )
 
       if(memcmp(h1,h2,hashbytes) == 0)
       {
-        printf(" FAIL !!!!!\n");
-        return;
+        failures++;
       }
 
       memcpy(h2,h1,hashbytes);
     }
+  }
+
+  if (failures > 0) {
+    printf(" FAIL !!!!! (%d/%d failures)\n", failures, 100 * 32);
+    return;
   }
 
   printf(" PASS\n");

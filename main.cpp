@@ -89,6 +89,8 @@ const char* quality_str[3] = { "SKIP", "POOR", "GOOD" };
 HashInfo g_hashes[] =
 {
 // first the bad hash funcs, failing tests:
+//{ xxHash64_test,        64, 0x024B7CF4, "xxHash64",    "xxHash, 64-bit", GOOD, {} },
+{ gxhash64_test,        64, 0x024B7CF4, "gxhash64",    "gxHash, 64-bit", GOOD, {} },
 { DoNothingHash,        32, 0x0, "donothing32", "Do-Nothing function (measure call overhead)", SKIP, {0UL} /* !! */ },
 { DoNothingHash,        64, 0x0, "donothing64", "Do-Nothing function (measure call overhead)", SKIP, {0ULL} /* !! */ },
 { DoNothingHash,       128, 0x0, "donothing128", "Do-Nothing function (measure call overhead)", SKIP, {0UL} /* !! */ },
@@ -667,7 +669,7 @@ HashInfo g_hashes[] =
 { farmhash128_c_test,  128, FARM128_VERIF,"farmhash128_c", "farmhash128_with_seed (C99)", GOOD, {} },
 #endif
 
-{ xxHash64_test,        64, 0x024B7CF4, "xxHash64",    "xxHash, 64-bit", GOOD, {} },
+
 #if 0
 { xxhash256_test,       64, 0x024B7CF4, "xxhash256",   "xxhash256, 64-bit unportable", GOOD, {} },
 #endif
