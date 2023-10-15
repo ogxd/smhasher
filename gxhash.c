@@ -137,15 +137,34 @@ static inline uint8x16_t aes_encrypt_last(uint8x16_t data, uint8x16_t keys) {
 // Somewhat computationally expensive, but at least it passes SMHasher
 static inline state compress(state a, state b) {
     
+    // gr: 2654435761
     //return aes_encrypt_last(a, b); // GxHash0
 
-    static const uint32_t salt_a_data[4] = {4104244489u, 3710553163u, 3367764511u, 4219769173u};
-    static const uint32_t salt_b_data[4] = {3624366803u, 3553132711u, 2860740361u, 2722013029u};
+    static const uint32_t salt_1_data[4] = {4104244489u, 3710553163u, 3367764511u, 4219769173u};
+    static const uint32_t salt_2_data[4] = {3624366803u, 3553132711u, 2860740361u, 2722013029u};
+    static const uint32_t salt_3_data[4] = {2404885111u, 3838554989u, 2635740077u, 3924434929u};
 
-    a = aes_encrypt(a, vld1q_u32(salt_a_data));
-    b = aes_encrypt(b, vld1q_u32(salt_b_data));
+    // a = aes_encrypt(a, vld1q_u32(salt_a_data));
+    // b = aes_encrypt(b, vld1q_u32(salt_b_data));
 
-    return aes_encrypt_last(a, b);
+    // return aes_encrypt_last(a, b);
+
+    b = vaddq_u32(b, vld1q_u32(salt_2_data)); // Cheap
+    b = vmulq_u32(b, vld1q_u32(salt_1_data)); // Cheap
+    b = vextq_s8(b, b, 3); // Expensive
+    b = vaddq_u32(b, vld1q_u32(salt_3_data)); // Cheap
+    b = vmulq_u32(b, vld1q_u32(salt_2_data)); // Cheap
+    b = vextq_s8(b, b, 3); // Expensive
+    b = vaddq_u32(b, vld1q_u32(salt_1_data)); // Cheap
+    b = vmulq_u32(b, vld1q_u32(salt_3_data)); // Cheap
+
+    //b = vextq_s8(b, b, 7);
+    //b = vaddq_u32(b, vld1q_u32(salt_3_data));
+    //b = vmulq_u32(b, vdupq_n_u32(2722013029)); // Knuth golden ratio
+
+    b = veorq_s8(a, b);
+    b = vextq_s8(b, b, 7);
+    return b;
 }
 
 static inline state finalize(state hash, uint32_t seed) {
