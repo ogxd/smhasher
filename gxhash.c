@@ -1,20 +1,90 @@
+#include "gxhash.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+
+#if defined(__SSE__) && defined(__AES__) && defined(__AVX2__)
+#include <immintrin.h>
+
+typedef __m256i state;
+typedef __m128i output;
+
+inline state create_empty() {
+    return _mm256_setzero_si256();
+}
+
+inline void prefetch(const state* p) {
+    _mm_prefetch((const char*)p, 3);
+}
+
+inline state load_unaligned(const state* p) {
+    return _mm256_loadu_si256(p);
+}
+
+static inline int check_same_page(const state* ptr) {
+    uintptr_t address = (uintptr_t)ptr;
+    uintptr_t offset_within_page = address & 0xFFF;
+    return offset_within_page <= (4096 - sizeof(state) - 1);
+}
+
+static inline state get_partial_safe(const uint8_t* data, size_t len) {
+    uint8_t buffer[sizeof(state)] = {0};
+    memcpy(buffer, data, len);
+    return _mm256_loadu_si256((const state*)buffer);
+}
+
+inline state get_partial(const state* p, intptr_t len) {
+    static const uint8_t MASK[2 * sizeof(state)] = {
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    };
+
+    if (check_same_page(p)) {
+        const uint8_t* mask_ptr = &MASK[32 - len];
+        __m256i mask = _mm256_loadu_si256((const __m256i*)mask_ptr);
+        return _mm256_and_si256(_mm256_loadu_si256(p), mask);
+    } else {
+        return get_partial_safe((const uint8_t*)p, (size_t)len);
+    }
+}
+
+inline state compress(state a, state b) {
+
+    // return _mm256_aesdeclast_epi128(a, b); // GxHash0
+
+    state salt1 = _mm256_set_epi32(4104244489u, 3710553163u, 3367764511u, 4219769173u, 3229102777u, 4201852661u, 3065017993u, 2722855403u)
+    state salt2 = _mm256_set_epi32(3624366803u, 3553132711u, 2860740361u, 2722013029u, 2350914373u, 3418786373u, 3841501031u, 3172997263u);
+
+    a = _mm256_aesdec_epi128(a, salt1);
+    b = _mm256_aesdec_epi128(b, salt2);
+
+    return _mm256_aesdeclast_epi128(a, b);
+}
+
+inline output finalize(state hash, uint32_t seed) {
+    __m128i lower = _mm256_castsi256_si128(hash);
+    __m128i upper = _mm256_extracti128_si256(hash, 1);
+    __m128i hash128 = _mm_xor_si128(lower, upper);
+
+    __m128i salt1 = _mm_set_epi32(0x713B01D0, 0x8F2F35DB, 0xAF163956, 0x85459F85);
+    __m128i salt2 = _mm_set_epi32(0x1DE09647, 0x92CFA39C, 0x3DD99ACA, 0xB89C054F);
+    __m128i salt3 = _mm_set_epi32(0xC78B122B, 0x5544B1B7, 0x689D2B7D, 0xD0012E32);
+
+    hash128 = _mm_aesenc_si128(hash128, _mm_set1_epi32(seed));
+    hash128 = _mm_aesenc_si128(hash128, salt1);
+    hash128 = _mm_aesenc_si128(hash128, salt2);
+    hash128 = _mm_aesenclast_si128(hash128, salt3);
+
+    return hash128;
+}
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
 #include <arm_neon.h>
-#endif
-#include "gxhash.h"
 
 typedef int8x16_t state;
-
-union ReinterpretUnion {
-    int64x2_t int64;
-    int32x4_t int32;
-    uint32x4_t uint32;
-    int8x16_t int8;
-    uint8x16_t uint8;
-};
+typedef int8x16_t output;
 
 static inline state create_empty() {
     return vdupq_n_s8(0);
@@ -24,25 +94,33 @@ static inline state load_unaligned(const state* p) {
     return vld1q_s8((const int8_t*)p);
 }
 
+static inline int check_same_page(const state* ptr) {
+    uintptr_t address = (uintptr_t)ptr;
+    uintptr_t offset_within_page = address & 0xFFF;
+    return offset_within_page <= (4096 - sizeof(state) - 1);
+}
+
 static inline state get_partial(const state* p, int len) {
     static const int8_t MASK[32] = {
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
-    int8x16_t mask = vld1q_s8(&MASK[16 - len]);
-    int8x16_t partial = vandq_s8(load_unaligned(p), mask);
-    partial = vaddq_u8(partial, vdupq_n_u8(len)); // Prevents padded zeroes to introduce bias
-    return partial;
-}
 
-// static inline state get_partial(const state* data, int len) {
-//     // Temporary buffer filled with zeros
-//     uint8_t buffer[sizeof(state)] = {0};
-//     // Copy data into the buffer
-//     memcpy(buffer, data, len);
-//     // Load the buffer into a int8x16_t vector
-//     return vld1q_s8((const int8_t*)buffer);
-// }
+    int8x16_t partial;
+    if (check_same_page(p)) {
+        // Unsafe (hence the check) but much faster
+        int8x16_t mask = vld1q_s8(&MASK[16 - len]);
+        partial = vandq_s8(load_unaligned(p), mask);
+    } else {
+        // Safer but slower, using memcpy
+        uint8_t buffer[sizeof(state)] = {0};
+        memcpy(buffer, (const uint8_t*)p, len);
+        partial = vld1q_s8((const int8_t*)buffer);
+    }
+
+    // Prevents padded zeroes to introduce bias
+    return vaddq_u8(partial, vdupq_n_u8(len));
+}
 
 static inline uint8x16_t aes_encrypt(uint8x16_t data, uint8x16_t keys) {
     uint8x16_t encrypted = vaeseq_u8(data, vdupq_n_u8(0));
@@ -61,47 +139,37 @@ static inline uint8x16_t aes_encrypt_last(uint8x16_t data, uint8x16_t keys) {
     return veorq_u8(encrypted, keys);
 }
 
-// Improvement idea : Hardcode a large buffer of integers to load vectors from for on-the-fly xoring
-
+// Somewhat computationally expensive, but at least it passes SMHasher
 static inline state compress(state a, state b) {
-    //static const uint32_t salt1_data[4] = {0x713B01D0, 0x8F2F35DB, 0xAF163956, 0x85459F85}; // Fail sparse
-    static const int32_t salt1_data[4] = {3624366803, 3553132711, 2860740361, 2722013029}; // 
-    uint32x4_t salt1 = vld1q_u32(salt1_data);
-    // uint32x4_t salt2 = vld1q_u32(salt2_data);
-    //b = veorq_s8(a, b);
-    union ReinterpretUnion bu = { .int8 = b };
-    union ReinterpretUnion au = { .int8 = a };
-    union ReinterpretUnion result = { .uint8 = aes_encrypt(au.uint8, bu.uint8) };
-    //state encrypted = result.int8;
-
-    union ReinterpretUnion s = { .uint32 = salt1 };
-    union ReinterpretUnion result2 = { .uint8 = aes_encrypt_last(result.uint8, bu.uint8) };
     
-    state encrypted = result2.int8;
+    //return aes_encrypt_last(a, b); // GxHash0
 
-    return encrypted;
+    static const uint32_t salt_a_data[4] = {4104244489u, 3710553163u, 3367764511u, 4219769173u};
+    static const uint32_t salt_b_data[4] = {3624366803u, 3553132711u, 2860740361u, 2722013029u};
+
+    a = aes_encrypt(a, vld1q_u32(salt_a_data));
+    b = aes_encrypt(b, vld1q_u32(salt_b_data));
+
+    return aes_encrypt_last(a, b);
 }
 
-static inline uint64_t finalize(state hash, uint32_t seed) {
+static inline state finalize(state hash, uint32_t seed) {
     static const uint32_t salt1_data[4] = {0x713B01D0, 0x8F2F35DB, 0xAF163956, 0x85459F85};
     static const uint32_t salt2_data[4] = {0x1DE09647, 0x92CFA39C, 0x3DD99ACA, 0xB89C054F};
     static const uint32_t salt3_data[4] = {0xC78B122B, 0x5544B1B7, 0x689D2B7D, 0xD0012E32};
 
-    uint32x4_t salt0 = vdupq_n_u32(seed);
-    uint32x4_t salt1 = vld1q_u32(salt1_data);
-    uint32x4_t salt2 = vld1q_u32(salt2_data);
-    uint32x4_t salt3 = vld1q_u32(salt3_data);
+    hash = aes_encrypt(hash, vdupq_n_u32(seed));
+    hash = aes_encrypt(hash, vld1q_u32(salt1_data));
+    hash = aes_encrypt(hash, vld1q_u32(salt2_data));
+    hash = aes_encrypt_last(hash, vld1q_u32(salt3_data));
 
-    union ReinterpretUnion hash_u = { .int8 = hash };
-    hash_u.uint8 = aes_encrypt(hash_u.uint8, vreinterpretq_u8_u32(salt0));
-    hash_u.uint8 = aes_encrypt(hash_u.uint8, vreinterpretq_u8_u32(salt1));
-    hash_u.uint8 = aes_encrypt(hash_u.uint8, vreinterpretq_u8_u32(salt2));
-    hash_u.uint8 = aes_encrypt_last(hash_u.uint8, vreinterpretq_u8_u32(salt3));
-
-    return *(uint64_t*)&hash_u.int8;
+    return hash;
 }
+#elif
+// Fallback ?
+#endif
 
-uint64_t gxhash(const uint8_t* input, int len, uint32_t seed) {
+static inline output gxhash(const uint8_t* input, int len, uint32_t seed) {
     const int VECTOR_SIZE = sizeof(state);
     const state* p = (const state*)input;
     const state* v = p;
@@ -164,4 +232,14 @@ uint64_t gxhash(const uint8_t* input, int len, uint32_t seed) {
     }
 
     return finalize(hash_vector, seed);
+}
+
+uint32_t gxhash32(const uint8_t* input, int len, uint32_t seed) {
+    output full_hash = gxhash(input, len, seed);
+    return *(uint32_t*)&full_hash;
+}
+
+uint64_t gxhash64(const uint8_t* input, int len, uint32_t seed) {
+    output full_hash = gxhash(input, len, seed);
+    return *(uint64_t*)&full_hash;
 }

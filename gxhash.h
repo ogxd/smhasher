@@ -6,8 +6,8 @@
 #if defined (__cplusplus)
 extern "C" {
 #endif
-// Function prototype for gxhash
-uint64_t gxhash(const uint8_t* input, int len, uint32_t seed);
+uint32_t gxhash32(const uint8_t* input, int len, uint32_t seed);
+uint64_t gxhash64(const uint8_t* input, int len, uint32_t seed);
 #if defined (__cplusplus)
 }
 #endif
