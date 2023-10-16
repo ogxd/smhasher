@@ -189,12 +189,6 @@ static inline uint8x16_t aes_encrypt(uint8x16_t data, uint8x16_t keys) {
     return veorq_u8(mixed, keys);
 }
 
-static inline uint8x16_t aes_decrypt(uint8x16_t data, uint8x16_t keys) {
-    uint8x16_t encrypted = vaesdq_u8(data, vdupq_n_u8(0));
-    uint8x16_t mixed = vaesmcq_u8(encrypted);
-    return veorq_u8(mixed, keys);
-}
-
 static inline uint8x16_t aes_encrypt_last(uint8x16_t data, uint8x16_t keys) {
     uint8x16_t encrypted = vaeseq_u8(data, vdupq_n_u8(0));
     return veorq_u8(encrypted, keys);
@@ -205,24 +199,24 @@ static inline state compress(state a, state b) {
     
     //return aes_encrypt_last(a, b); // GxHash0
 
-    static const uint32_t salt_a_data[4] = {4104244489u, 3710553163u, 3367764511u, 4219769173u};
-    static const uint32_t salt_b_data[4] = {3624366803u, 3553132711u, 2860740361u, 2722013029u};
+    static const uint32_t salt_1_data[4] = {0xFC3BC28E, 0x89C222E5, 0xB09D3E21, 0xF2784542};
+    static const uint32_t salt_2_data[4] = {0x4155EE07, 0xC897CCE2, 0x780AF2C3, 0x8A72B781};
+    //static const uint32_t salt_3_data[4] = {0x03FCE279, 0xCB6B2E9B, 0xB361DC58, 0x39136BD9};
 
-    a = aes_encrypt(a, vld1q_u32(salt_a_data));
-    b = aes_encrypt(b, vld1q_u32(salt_b_data));
+    a = aes_encrypt(a, vld1q_u32(salt_1_data));
+    b = aes_encrypt(b, vld1q_u32(salt_2_data));
 
     return aes_encrypt_last(a, b);
 }
 
 static inline state finalize(state hash, uint32_t seed) {
-    static const uint32_t salt1_data[4] = {0x713B01D0, 0x8F2F35DB, 0xAF163956, 0x85459F85};
-    static const uint32_t salt2_data[4] = {0x1DE09647, 0x92CFA39C, 0x3DD99ACA, 0xB89C054F};
-    static const uint32_t salt3_data[4] = {0xC78B122B, 0x5544B1B7, 0x689D2B7D, 0xD0012E32};
+    static const uint32_t salt_1_data[4] = {0x5A3BC47E, 0x89F216D5, 0xB09D2F61, 0xE37845F2};
+    static const uint32_t salt_2_data[4] = {0xE7554D6F, 0x6EA75BBA, 0xDE3A74DB, 0x3D423129};
+    //static const uint32_t salt_3_data[4] = {0xC992E848, 0xA735B3F2, 0x790FC729, 0x444DF600};
 
     hash = aes_encrypt(hash, vdupq_n_u32(seed));
-    hash = aes_encrypt(hash, vld1q_u32(salt1_data));
-    hash = aes_encrypt(hash, vld1q_u32(salt2_data));
-    hash = aes_encrypt_last(hash, vld1q_u32(salt3_data));
+    hash = aes_encrypt(hash, vld1q_u32(salt_1_data));
+    hash = aes_encrypt_last(hash, vld1q_u32(salt_2_data));
 
     return hash;
 }
